@@ -1,0 +1,251 @@
+---
+title: "lab10"
+author: "Phuong Le"
+date: "2023-11-8"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    theme: journal
+---
+
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+
+#options(repos = c(CRAN = "https://cran.rstudio.com"))  # Set a CRAN mirror 
+
+#install.packages("ggmap")
+
+#install.packages("devtools") 
+library(devtools) 
+#devtools::install_github("stadiamaps/ggmap")
+
+library(ggmap)
+library(tidyverse)
+library(ggthemes)
+library(ggplot2)
+library(ggfortify)
+
+#register_stadiamaps("uncomment and replace this with your stadiamaps API key")
+```
+# Introduction
+
+The data set consists of information about Airbnb businesses in Columbus, Ohio, from 21 September 2022. In this report, we aim to introduce factors with main influence on the price and create a model to predict the price for certain cases. While this data set is legally public, the information might have been collected without the stakeholders (including business’s owners, reviewers, and other related parties)’ acknowledgement. At the same time, it is worth noting that the data might not be suitable to reflect on the general, long-term accommodation market due to the effect of the pandemic, which was still fresh relatively to the time the data was collected.
+
+
+```{r}
+cbus <- read.csv("columbus-listings-2022.csv")
+
+```
+
+
+
+
+# Data Exploration
+
+
+```{r}
+#Q5
+cbus <- cbus %>% mutate(price = as.numeric(str_remove_all(price, "[$]")))
+
+
+
+cbus <- cbus %>% mutate(bathrooms = as.numeric(str_remove_all(cbus$bathrooms_text, "[shared baths private bath Private halfbath-]")))
+
+```
+
+
+
+```{r}
+#Q6
+
+#rating scores and prices
+ggplot(cbus, aes(x = price))+
+  geom_histogram(bins = 30)+
+  theme_clean()+
+  labs(title = "Distribution of Prices", x = "Prices", y = "Count")
+```
+
+
+We can see that the histogram is not symmetric and majorly skewed to the left indicating an uneven distribution of the price. The peak falls at around \$125 while the price can get as high as \$1000. At the same time, the bars get lower as the price increase. This may be explained by the common comfort level offered by this specific type of accommodation and hence heavy distribution in the relative average price range in the accommodation market.
+
+
+```{r}
+#accuracy scores and prices
+ggplot(cbus, aes(x = beds, y = price))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  theme_clean()+
+  labs(title = "Effect of number of beds on prices", x = "Number of beds", y = "Prices")
+```
+
+
+The scatter plot plots the relationship between the number of beds and the price of the according Airbnb service. With the blue line going up and the narrow shaded area around the regression linethe narrow shaded area around the regression line, we may say that the number of beds and the price have positive relationship, which means the price increases as there are more beds in the Airbnb. Hence, we may look further into this relationship and consider including it in the linear model later
+
+
+```{r}
+#Q7
+map <- c(left=-83.2, bottom=39.8, right=-82.75, top=40.16)
+
+columbus_map <- get_stadiamap(map, zoom = 10)
+
+ggmap(columbus_map)+
+  geom_jitter(data = cbus, aes(x=longitude, y=latitude), alpha = 0.05, color = 'red')+
+  labs(title = "Columbus Airbnbs map", x = "Longtitude", y = "Latitude")+
+  theme_clean()
+
+
+```
+
+
+# Statistical Analysis and Interpretaion
+
+
+```{r}
+ggplot(cbus, aes(x = bathrooms, y = price))+
+  geom_point()+
+  geom_smooth(method = lm)+
+  theme_clean()+
+  labs(title = "Effect of number of bathrooms on prices", x = "Number of bathrooms", y = "Prices")
+```
+
+
+The scatter plot shows the relationship between the number of bathrooms and the price of the according Airbnb. With the line going up, we can say that they have a positive relationship, which means as the number of bathrooms goes up, the prices also increase. At the same time, with the grey shaded area around the line being somewhat narrow, we can be confident about this positive relationship. Hence, we may consider including this variable in the model later.
+
+
+```{r}
+summary(lm(price ~ bathrooms, cbus))
+```
+
+The estimated intercept is 49.194, which is the predicted price when the number of bathrooms is 0. The estimated coefficient for the bathrooms variable is 67.882. This indicates that, on average, for each additional bathroom, the predicted price increases by 67.882 units.
+The '***' next to both coefficients indicates that they are highly statistically significant (p-value < 0.001). 
+The Multiple R-squared (0.216) indicates that the model with only bathrooms variable explains about 21.6% of the variability in the response variable (price).
+The extremely low p-value (< 2.2e-16) indicates that the model is statistically significant.
+Overall, the model suggests that the number of bathrooms is a significant predictor of the price, and the model provides a reasonable fit to the data.
+This confirms that we can include the bathrooms variable in the model as it has a strong enough relationship with price.
+
+```{r}
+confint(lm(price ~ bathrooms, cbus))
+```
+
+
+The confident interval of the linear model of price and bathrooms intercept is from about 40 to 58.38, while for the coefficient of bathrooms variable, it is 62.46 to 73.30. We are 95% confident the at their true values are in the according range. As the intervals are not to wide, we can tell that the values are relatively close to their true vlaues.
+
+
+```{r}
+#Q9
+library(GGally)
+
+ggpairs(cbus, columns = c("review_scores_rating", "review_scores_accuracy", "review_scores_cleanliness", "beds", "bathrooms"), title = "Plot to check multicollinearity of 5 variables considered for the model")+
+  theme_clean()
+```
+
+
+In terms of multicollinearity, review_scores_accuracy, review_scores_rating, review_scores_cleanliness are most correlated with each other, with the coefficient of over 0.8 (with high significance indicated by the three stars for all of them). Hence, we may not use more than one of these three variables in the model. Meanwhile, other pairs of variables are relatively safe to use together as their correlation are not strong.
+Hence, we will choose beds, bathrooms, and review_scores_accuracy to include in the model, as beds and bathrooms affect the Airbnb guests convenience whiel review_scores_accuracy reflect the guests' trust and the Airbnb credibility.
+
+
+```{r}
+#Q10
+
+cbuslinearmodel <- cbus %>%
+  filter (!is.na(price), 
+          !is.na(beds),
+          !is.na(review_scores_accuracy),
+          !is.na(bathrooms), bathrooms != 0)
+
+model <- lm(log(price) ~ log(beds) + review_scores_accuracy + log(bathrooms), cbuslinearmodel)
+
+summary(model)
+```
+
+The intercept is 4.00579, it represents the estimated price when all predictors are set to zero. This means that a property with 1 beds, a review score accuracy of zero, and 1 bathrooms would have an estimated base price of 4.00579. However, this is unlikely in the real world.
+The coefficient for "the log of beds" is 0.55883, indicating that for every additional 1% of the number of beds, the price is expected to increase by approximately \$ 0.55883, all else being equal. The "review_scores_accuracy" coefficient of 0.07450 suggests that for every one-unit increase in review accuracy, the price is expected to rise by around \$ 0.07450. Similarly, the coefficient for "the log of bathrooms" is 0.19929, indicating that an extra percent of the number of bathrooms is associated with an approximate \$0.19929 increase in price. All three predictors have low p-values (log of beds: <2e-16, review_scores_accuracy: 0.015, log of bathrooms: 4.82e-12), indicating their statistical significance.
+
+
+Overall, as they all have positive coefficient, all indicators have positive relationship with the price variable.
+
+
+The overall model is statistically significant, as indicated by the low p-value of less than 2.2e-16. The R-squared value of 0.4258 tells us that approximately 42.58% of the variation in price can be explained by these predictors.
+
+We now check the validation of the model, using the diagnostic plot and the residuals histogram.
+
+```{r}
+#Q11
+
+autoplot(model)
+```
+
+
+With the line in the the residual vs fitted plot being fairly horizontal and straight, we can say that the relationship between dependent variable and independent variables is linear.
+With distribution of the points in the graph of normal Q-Q plot being mostly on the dash line, we can say that the residuals follow a normal distribution.
+In the Scale-Location, as the line is almost straight and horizontal, we may say that the variance of the residual is closed to being constant (homoskedastic)
+Finally, in the Residual vs leverage with the blue line being horizontal and showing no relationship, we can conclude that the residuals are independent.
+
+With all four conditions being satisfied, the model is fulfilling the linear regression assumptions and hence can be applied.
+
+```{r}
+ggplot(model, aes(x=model$residual))+
+  geom_histogram()+
+  theme_clean()+
+  labs(title = 'Histogram of Residuals', x = 'Residuals', y = 'Frequency')
+```
+
+
+Through the histogram, we can tell that the residuals have outliers with extreme values (residuals with values below about -1 and above about 1), although not at a considerable number. At the same time, with the highest bar at value 0, we can tell that our model provides a fairly good fit.
+
+
+```{r}
+confint(model)
+```
+
+
+We are 95% confident that the real value of the intercept falls between 3.714 and 4.297; the real coefficient for the logarithm of beds falls between 0.5224 and 0.5953; the real coefficient for the review scores' accuracy falls between 0.0145 and 0.1345; the real coefficient for the logarithm of bathrooms falls between 0.1431 and 0.2555.
+The narrower the interval, the more precise our estimation is. In this case, the confident interval is not too narrow but enough for the model to be reliable.
+
+To test the model, we can try to see if the model correctly gives the prices of 3 levels (low, medium, high) for Airbnb based on the number of beds, bathrooms, and review scores for accuracy
+
+```{r}
+#Q13
+lowprice <- data.frame(beds = 1, bathrooms = 1, review_scores_accuracy = 1)
+mediumprice <- data.frame(beds = 5, bathrooms = 5, review_scores_accuracy = 3)
+highprice <- data.frame(beds= 10, bathrooms=10, review_scores_accuracy=5)
+
+
+
+price_model1 <- lm(price ~ beds + bathrooms + review_scores_accuracy, cbuslinearmodel)
+
+predict(price_model1, lowprice) 
+predict(price_model1, mediumprice) 
+predict(price_model1, highprice)
+
+```
+
+
+The first prediction is 29.6177, which corresponds to the low price scenario, where bed and bathroom and review scores are set to be very low (as them all have positive relationship with the price). This suggests that, based on the model and the specific predictor values for this scenario, the expected rental price is relatively low.
+
+The second prediction is 340.6857, which corresponds to the medium price scenario, where bed and bathroom and review scores are set to be in the middle (e.g 3 for review_scores_accuracy as it can be as high as 5 and as low as 1). In this case, the model predicts a moderately higher rental price, indicating that the predictor values for this scenario are associated with a middle-range price.
+
+The third prediction is 722.2219, which corresponds to the high price scenario, where bed and bathroom and review scores are set to be relatively high (as them all have positive relationship with the price). This prediction suggests that, based on the model and the specific predictor values for this scenario, the expected rental price is relatively high.
+
+These predictions align with the model's coefficient estimates, indicating that the chosen predictor variables have a significant influence on rental prices. For the each scenario, we get a price that is relatively fit the price level (low, medium, high), with the medium being in between of the low and high price predicted. This confirms that the model output and predictions are consistent with the expected relationships between the predictors and the response variable, which is rental price.
+
+
+
+Overall, in this analysis, we have examined information about Airbnb listings in Columbus, Ohio. We have built a linear regression model to predict rental prices based on the number of beds, the number of bathrooms, and review scores' accuracy.To open an Airbnb property that can be rented out at a high price in Columbus, you should consider providing more beds and bathrooms, which our model has shown to positively impact prices. Additionally, maintaining a high level of accuracy in the property's reviews can further increase the expected rental price. However, it's essential to note that the analysis does not consider other vital factors, such as location and property features, which can significantly affect rental prices.
+
+One potential pitfall of our analysis is the real-world relationships as they can be more complex. Also, the model's predictive power may be limited by factors as we don't in the data set, such as the availability of public transportation, neighborhood safety, and local events.
+
+In conclusion, while our analysis and linear regression model provides valuable insights into factors affecting Airbnb rental prices in Columbus, it is crucial to consider more variables in the model. Opening a high-price Airbnb in Columbus requires a combination of factors, including the number of beds, bathrooms, and positive reviews, but it should be part of a more effective strategy that takes into account the unique features and attractions of the property and its location.
+
+
+ https://www.wgbh.org/news/local-news/2021/07/22/airbnb-impacts-neighborhood-crime-but-not-in-the-way-you-think
+ https://slate.com/business/2021/10/airbnb-housing-shortage-luxury-vacation-rental-galveston-texas.html
+
+One article showed how short-term rentals, driven by platforms like Airbnb, are reshaping neighborhoods and communities, particularly in vacation destinations like Galveston. The narrative captures the emptiness of neighborhoods dominated by short-term rentals, emphasizing the loss of community and local culture. The article also explores the connection between storms and the affordability of housing, the increasing challenges communities in the face of natural disasters. The proposed remedies, inspired by approaches in cities like New Orleans, involve placing caps on the number of rentals in certain neighborhoods and banning short-term rentals in others to preserve cultural heritage and prevent further displacement of long-term residents.
+
+Meanwhile, the study from Northeastern University sheds light on the relationship between Airbnb and neighborhood crime in Boston. The number of buildings with listings is identified as a key predictor of increased crime, suggesting that the transient nature of Airbnb households might disrupt the social fabric of neighborhoods and that can lead to crimes. Airbnb's response however rejects the study's findings adds another layer to the ongoing debate surrounding the impact of short-term rentals on communities.
+
+Through both of these article, we have a broader look at the Airbnb dynamics, especially from the community perspective rather than just the retailers'. Although not included in our model, crimes, natural disasters, lost in diversity, local culture,etc are factors that can affect the number of tourists-a determinant for the demand of Airbnb, and hence the price. To predict better the price, it would be useful for future analysis to attempt to capture the relationships of the mentioned factors in the data set as well as the model.
